@@ -26,12 +26,10 @@ import numpy as np
 import pyglove as pg
 import tensorflow as tf
 
+# print(flags)  # if you ommit this, it complain that "can not find flags"
+flags.DEFINE_integer("max_trials", 10, "Number of max trials for tuning.")
 
-flags.DEFINE_integer(
-    'max_trials', 10, 'Number of max trials for tuning.')
-
-flags.DEFINE_integer(
-    'num_epochs', 10, 'Number of epochs to train for each trail.')
+flags.DEFINE_integer("num_epochs", 10, "Number of epochs to train for each trail.")
 
 # Placeholder for Google-internal tuning backend flags.
 
@@ -39,23 +37,20 @@ flags.DEFINE_integer(
 FLAGS = flags.FLAGS
 
 
-def download_and_prep_data() -> Tuple[np.ndarray,
-                                      np.ndarray,
-                                      np.ndarray,
-                                      np.ndarray]:
-  """Download dataset and scale to [0, 1].
+def download_and_prep_data() -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Download dataset and scale to [0, 1].
 
-  Returns:
-    tr_x: Training data.
-    tr_y: Training labels.
-    te_x: Testing data.
-    te_y: Testing labels.
-  """
-  mnist_dataset = tf.keras.datasets.mnist
-  (tr_x, tr_y), (te_x, te_y) = mnist_dataset.load_data()
-  tr_x = tr_x / 255.0
-  te_x = te_x / 255.0
-  return tr_x, tr_y, te_x, te_y
+    Returns:
+      tr_x: Training data.
+      tr_y: Training labels.
+      te_x: Testing data.
+      te_y: Testing labels.
+    """
+    mnist_dataset = tf.keras.datasets.mnist
+    (tr_x, tr_y), (te_x, te_y) = mnist_dataset.load_data()
+    tr_x = tr_x / 255.0
+    te_x = te_x / 255.0
+    return tr_x, tr_y, te_x, te_y
 
 
 # NOTE(daiyip): decorator 'pg.symbolize' turns a function into a Functor, which
@@ -73,86 +68,100 @@ def download_and_prep_data() -> Tuple[np.ndarray,
 #   ```
 @pg.symbolize
 def build_model(inputs, hparams):
-  """Build model from hyper-parameters."""
-  if hparams.use_conv_net:
-    x = tf.keras.layers.Lambda(lambda x: tf.reshape(x, (-1, 28, 28, 1)))(inputs)
-    x = tf.keras.layers.Conv2D(filters=hparams.filters,
-                               kernel_size=hparams.kernel_size,
-                               activation=hparams.activation)(x)
-    x = tf.keras.layers.Flatten()(x)
-  else:
-    x = tf.keras.layers.Flatten()(inputs)
-    x = tf.keras.layers.Dense(hparams.units, activation=hparams.activation)(x)
-  return tf.keras.layers.Dense(10, activation='softmax')(x)
+    """Build model from hyper-parameters."""
+    if hparams.use_conv_net:
+        x = tf.keras.layers.Lambda(lambda x: tf.reshape(x, (-1, 28, 28, 1)))(inputs)
+        x = tf.keras.layers.Conv2D(
+            filters=hparams.filters,
+            kernel_size=hparams.kernel_size,
+            activation=hparams.activation,
+        )(x)
+        x = tf.keras.layers.Flatten()(x)
+    else:
+        x = tf.keras.layers.Flatten()(inputs)
+        x = tf.keras.layers.Dense(hparams.units, activation=hparams.activation)(x)
+    return tf.keras.layers.Dense(10, activation="softmax")(x)
 
 
 def train_and_eval(model_builder, input_data, num_epochs=10) -> float:
-  """Returns model accuracy after train and evaluation."""
-  tr_x, tr_y, te_x, te_y = input_data
-  inputs = tf.keras.Input(shape=tr_x.shape[1:])
-  model = tf.keras.Model(inputs, model_builder(inputs))
-  model.compile(optimizer='adam',
-                loss='sparse_categorical_crossentropy',
-                metrics=['accuracy'])
-  model.fit(tr_x, tr_y, epochs=num_epochs)
-  _, test_acc = model.evaluate(te_x, te_y, verbose=2)
-  return test_acc
+    """Returns model accuracy after train and evaluation."""
+    tr_x, tr_y, te_x, te_y = input_data
+    inputs = tf.keras.Input(shape=tr_x.shape[1:])
+    model = tf.keras.Model(inputs, model_builder(inputs))
+    model.compile(
+        optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"]
+    )
+    model.fit(tr_x, tr_y, epochs=num_epochs)
+    _, test_acc = model.evaluate(te_x, te_y, verbose=2)
+    return test_acc
 
 
 def tune(max_trials, num_epochs):
-  """Tune MNIST model via random search."""
-  results = []
-  input_data = download_and_prep_data()
+    """Tune MNIST model via random search."""
+    results = []
+    input_data = download_and_prep_data()
 
-  # NOTE(daiyip): Being decorated by `pg.symbolize`, `build_model` is now a
-  # functor, which is a class whose arguments can be partially or late-bound.
-  # Here we create a `build_model` instance by partially binding the `hparams`
-  # argument, whose `inputs` argument will be bound during the `__call__` time
-  # within the definition of `train_and_eval`.
-  hyper_model_builder = build_model(hparams=pg.oneof([  # pylint: disable=no-value-for-parameter
-      # For dense layer as the backbone.
-      pg.Dict(use_conv_net=False,
-              units=pg.oneof([64, 128]),
-              activation=pg.oneof(['relu', 'sigmoid'])),
-      # For conv net as the backbone.
-      pg.Dict(use_conv_net=True,
-              filters=pg.oneof([64, 128]),
-              kernel_size=pg.oneof([(3, 3), (5, 5)]),
-              activation=pg.oneof(['relu', 'sigmoid']))
-  ]))
+    # NOTE(daiyip): Being decorated by `pg.symbolize`, `build_model` is now a
+    # functor, which is a class whose arguments can be partially or late-bound.
+    # Here we create a `build_model` instance by partially binding the `hparams`
+    # argument, whose `inputs` argument will be bound during the `__call__` time
+    # within the definition of `train_and_eval`.
+    hyper_model_builder = build_model(
+        hparams=pg.oneof(
+            [  # pylint: disable=no-value-for-parameter
+                # For dense layer as the backbone.
+                pg.Dict(
+                    use_conv_net=False,
+                    units=pg.oneof([64, 128]),
+                    activation=pg.oneof(["relu", "sigmoid"]),
+                ),
+                # For conv net as the backbone.
+                pg.Dict(
+                    use_conv_net=True,
+                    filters=pg.oneof([64, 128]),
+                    kernel_size=pg.oneof([(3, 3), (5, 5)]),
+                    activation=pg.oneof(["relu", "sigmoid"]),
+                ),
+            ]
+        )
+    )
 
-  # NOTE(daiyip): `pg.sample` returns an iterator of (example, feedback_fn)
-  # from a hyper object (the search space) and a DNAGenerator (the search
-  # algorithm), with an optional flag to set the max examples to sample.
-  # `example` is a materialized object of the search space, and `feedback_fn`
-  # is a callable object that we can send back a float reward to the
-  # controller. `feedback_fn` also has a property `dna` to access the DNA value
-  # of current example.
-  for builder, feedback in pg.sample(
-      hyper_model_builder, pg.geno.Random(), max_trials):
-    print('{}: DNA: {}'.format(feedback.id, feedback.dna))
-    test_acc = train_and_eval(builder, input_data, num_epochs)
-    results.append((feedback.id, feedback.dna, test_acc))
-    # NOTE: for random generator, following call to `feedback` is a no-op.
-    # We keep it here in case we want to change algorithm.
-    feedback(test_acc)
+    # NOTE(daiyip): `pg.sample` returns an iterator of (example, feedback_fn)
+    # from a hyper object (the search space) and a DNAGenerator (the search
+    # algorithm), with an optional flag to set the max examples to sample.
+    # `example` is a materialized object of the search space, and `feedback_fn`
+    # is a callable object that we can send back a float reward to the
+    # controller. `feedback_fn` also has a property `dna` to access the DNA value
+    # of current example.
+    for builder, feedback in pg.sample(
+        hyper_model_builder, pg.geno.Random(), max_trials
+    ):
+        print("{}: DNA: {}".format(feedback.id, feedback.dna))
+        test_acc = train_and_eval(builder, input_data, num_epochs)
+        results.append((feedback.id, feedback.dna, test_acc))
+        # NOTE: for random generator, following call to `feedback` is a no-op.
+        # We keep it here in case we want to change algorithm.
+        feedback(test_acc)
 
-  # Print best results.
-  top_results = sorted(results, key=lambda x: x[2], reverse=True)
-  print('Top 10 results.')
-  for i, (trial_id, dna, test_acc) in enumerate(top_results[:10]):
-    print('#{0:2d} - trial {1:2d} ({2:.3f}): {3}'.format(
-        i + 1, trial_id, test_acc, dna))
+    # Print best results.
+    top_results = sorted(results, key=lambda x: x[2], reverse=True)
+    print("Top 10 results.")
+    for i, (trial_id, dna, test_acc) in enumerate(top_results[:10]):
+        print(
+            "#{0:2d} - trial {1:2d} ({2:.3f}): {3}".format(
+                i + 1, trial_id, test_acc, dna
+            )
+        )
 
 
 def main(argv):
-  if len(argv) > 1:
-    raise app.UsageError('Too many command-line arguments.')
+    if len(argv) > 1:
+        raise app.UsageError("Too many command-line arguments.")
 
-  # Placeholder for Google-internal tuning backend setup.
+    # Placeholder for Google-internal tuning backend setup.
 
-  tune(FLAGS.max_trials, FLAGS.num_epochs)
+    tune(FLAGS.max_trials, FLAGS.num_epochs)
 
 
-if __name__ == '__main__':
-  app.run(main)
+if __name__ == "__main__":
+    app.run(main)
